@@ -1,0 +1,896 @@
+{% comment %}
+  Section: Hero Banner
+  ─────────────────────────────────────────────────────────────
+  Layout (top → bottom):
+    1. Top Row    — logo | tagline | CTA button (collapses to hamburger on mobile)
+    2. Middle Row — full-width desktop image + split content/image panel
+    3. Bottom Row — text ticker (separate copy for desktop vs mobile)
+
+  JS: Vanilla IIFE handles mobile menu open/close + resize clean-up.
+  Responsive breakpoint: 768 px (mobile-first overrides inside @media).
+  ─────────────────────────────────────────────────────────────
+{% endcomment %}
+
+{%- style -%}
+  /*
+   * Google Fonts — loaded via @import so it stays inside Shopify's
+   * {%- style -%} pipeline and doesn't block the <head> parser.
+   */
+  @import url('https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap');
+
+  /* ── Wrapper ──────────────────────────────────────────────── */
+  .hero-banner-wrapper {
+    font-family: 'Jost', sans-serif;
+    width: 100%;
+  }
+
+  /*
+   * .gb-inner is a max-width container shared by every row.
+   * Left padding uses clamp() so it scales smoothly from small
+   * screens up to the 1440 px cap. Right padding is 0 by default
+   * because the hero image bleeds to the right edge on desktop.
+   */
+  .hero-banner-wrapper .gb-inner {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding-left: clamp(20px, 3.5%, 50px);
+    padding-right: 0;
+  }
+
+  /* Top row needs right padding so the button doesn't sit flush */
+  .gb-row--top > .gb-inner {
+    padding-right: clamp(20px, 3.5%, 50px);
+  }
+
+  /* ── Row backgrounds ──────────────────────────────────────── */
+  .hero-banner-wrapper .gb-row--top,
+  .hero-banner-wrapper .gb-row--bottom {
+    background-color: #F5F5F5;
+  }
+
+  /* ── Top Row — header bar ─────────────────────────────────── */
+  .hero-banner-wrapper .gb-row--top .gb-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  /* ── Logo ─────────────────────────────────────────────────── */
+  .hero-banner-wrapper .gb-logo img {
+    display: block;
+    height: auto;
+    /* Width is set inline via section.settings.logo_width_desktop */
+    width: {{ section.settings.logo_width_desktop }}px;
+  }
+
+  /* Text fallback when no logo image is uploaded */
+  .hero-banner-wrapper .gb-logo-placeholder {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #000;
+    text-decoration: none;
+  }
+
+  /* ── Tagline (centre of header bar) ──────────────────────── */
+  .hero-banner-wrapper .gb-tagline {
+    font-size: 16px;
+    font-weight: 400;
+    color: #000;
+    text-align: center;
+    flex: 1; /* fills available space between logo and button */
+    margin: 0;
+  }
+
+  /* ── Shared button styles ─────────────────────────────────── */
+  .hero-banner-wrapper .gb-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 32px;
+    font-family: 'Jost', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: #000;
+    background-color: #FFF544;
+    border: none;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+    /*
+     * Avoid `transition: all` — it is expensive because it animates
+     * every animatable property on every frame. Only transition the
+     * properties we actually change.
+     */
+    transition: color 0.4s ease, box-shadow 0.4s ease;
+    z-index: 0;
+  }
+
+  /* Hero variant needs slightly larger padding */
+  .hero-banner-wrapper .gb-btn.gb-btn--hero {
+    padding: 14px 28px;
+  }
+
+  /*
+   * Sliding fill effect — a pseudo-element covers the button from
+   * left to right on hover, switching the background to black.
+   */
+  .hero-banner-wrapper .gb-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: #000;
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 0.4s cubic-bezier(0.77, 0, 0.18, 1);
+    z-index: -1;
+  }
+
+  .hero-banner-wrapper .gb-btn:hover {
+    color: #fff;
+    box-shadow: 0px 2px 4px 0px rgba(0, 0, 0, 0.2);
+  }
+
+  .hero-banner-wrapper .gb-btn:hover::before {
+    transform: scaleX(1);
+  }
+
+  /* Arrow SVG path color follows the button text color on hover */
+  .hero-banner-wrapper .gb-btn svg path {
+    transition: fill 0.4s ease, stroke 0.4s ease;
+  }
+
+  .hero-banner-wrapper .gb-btn:hover svg path {
+    fill: #fff;
+    stroke: #fff;
+  }
+
+  /* ── Hero button variant (dark bg, yellow fill on hover) ─── */
+  .hero-banner-wrapper .gb-btn--hero {
+    color: #fff;
+    background-color: #000;
+  }
+
+  .hero-banner-wrapper .gb-btn--hero::before {
+    background-color: #FFF544;
+  }
+
+  .hero-banner-wrapper .gb-btn--hero:hover {
+    color: #000;
+    box-shadow: 0px 2px 4px 0px rgba(0, 0, 0, 0.2);
+  }
+
+  .hero-banner-wrapper .gb-btn--hero svg path {
+    fill: #fff;
+  }
+
+  .hero-banner-wrapper .gb-btn--hero:hover svg path {
+    fill: #000;
+    stroke: transparent;
+  }
+
+  /* ── Middle Row — full-width desktop image ────────────────── */
+  .hero-banner-wrapper .gb-row--middle {
+    width: 100%;
+  }
+
+  .hero-banner-wrapper .gb-hero-full-img {
+    width: 100%;
+    display: block;
+    line-height: 0; /* removes the gap under inline images */
+  }
+
+  .hero-banner-wrapper .gb-hero-full-img img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: cover;
+  }
+
+  /* ── Middle Row — split content + side image panel ────────── */
+  .hero-banner-wrapper .gb-hero-split {
+    width: 100%;
+  }
+
+  .hero-banner-wrapper .gb-hero-split .gb-inner {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  /* Left content column (heading, subtext, CTA) */
+  .hero-banner-wrapper .gb-hero-split__content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 30px;
+    padding-bottom: 30px;
+    padding-right: 10px;
+  }
+
+  /* ── Hero heading ─────────────────────────────────────────── */
+  .hero-banner-wrapper .gb-hero-heading {
+    font-size: 70px;
+    font-weight: 500;
+    line-height: 1;
+    color: #000;
+    margin: 0 0 50px;
+  }
+
+  /* Mobile heading is hidden on desktop — aria-hidden added in HTML */
+  .hero-banner-wrapper .gb-hero-heading--mobile {
+    display: none;
+  }
+
+  /* ── Hero subtext ─────────────────────────────────────────── */
+  .hero-banner-wrapper .gb-hero-subtext {
+    font-size: 20px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: #000;
+    margin: 0 0 50px;
+  }
+
+  .hero-banner-wrapper .gb-hero-subtext--mobile {
+    display: none;
+  }
+
+  /* ── Right image column ───────────────────────────────────── */
+  .hero-banner-wrapper .gb-hero-split__image {
+    flex: 0 0 auto;
+    width: 62%;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /*
+   * Absolute positioning fills the image into its parent container
+   * regardless of content height on the left side.
+   */
+  .hero-banner-wrapper .gb-hero-split__image img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top left;
+    display: block;
+  }
+
+  /* Mobile-only image block (hidden on desktop) */
+  .hero-banner-wrapper .gb-hero-split__image--mobile-btn {
+    display: none;
+  }
+
+  /* ── Bottom Row — text ticker ─────────────────────────────── */
+  .hero-banner-wrapper .gb-row--bottom .gb-inner {
+    padding-top: 14px;
+    padding-bottom: 14px;
+    text-align: center;
+  }
+
+  .hero-banner-wrapper .gb-ticker {
+    font-size: 16px;
+    font-weight: 400;
+    text-transform: uppercase;
+    color: #000;
+    margin: 0;
+  }
+
+  /* Mobile ticker copy is hidden on desktop */
+  .hero-banner-wrapper .gb-ticker--mobile {
+    display: none;
+  }
+
+  /* ── Mobile nav toggle (hamburger) ───────────────────────── */
+  /* Hidden on desktop; shown via media query below */
+  .hero-banner-wrapper .gb-mobile-nav {
+    display: none;
+  }
+
+  /* Mobile dropdown menu — hidden until toggled by JS */
+  .hero-banner-wrapper .gb-menu-dropdown {
+    display: none;
+  }
+
+  /* ── Responsive — 768 px and below ───────────────────────── */
+  @media (max-width: 768px) {
+
+    /* Centre the logo; make room for the hamburger on the left */
+    .hero-banner-wrapper .gb-row--top .gb-inner {
+      position: relative;
+      justify-content: center;
+      padding-top: 23px;
+      padding-bottom: 23px;
+    }
+
+    .hero-banner-wrapper .gb-logo img {
+      width: {{ section.settings.logo_width_mobile }}px;
+    }
+
+    /* Hide desktop nav elements on mobile */
+    .hero-banner-wrapper .gb-desktop-nav {
+      display: none;
+    }
+
+    .hero-banner-wrapper .gb-tagline,
+    .hero-banner-wrapper .gb-btn--header {
+      display: none;
+    }
+
+    /* Hamburger button — absolutely positioned on the left */
+    .hero-banner-wrapper .gb-mobile-nav {
+      display: flex;
+      align-items: center;
+      position: absolute;
+      left: clamp(20px, 3.5%, 50px);
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      z-index: 10;
+    }
+
+    .hero-banner-wrapper .gb-mobile-nav .gb-icon-menu,
+    .hero-banner-wrapper .gb-mobile-nav .gb-icon-close {
+      display: block;
+      transition: opacity 0.25s ease, transform 0.3s ease;
+    }
+
+    /* Close icon hidden by default; shown when menu is open */
+    .hero-banner-wrapper .gb-mobile-nav .gb-icon-close {
+      display: none;
+    }
+
+    .hero-banner-wrapper .gb-mobile-nav.is-open .gb-icon-menu {
+      display: none;
+    }
+
+    .hero-banner-wrapper .gb-mobile-nav.is-open .gb-icon-close {
+      display: block;
+    }
+
+    /*
+     * Dropdown animates via max-height (from 0 → scrollHeight).
+     * We use cubic-bezier for a snappy open / smooth close feel.
+     */
+    .hero-banner-wrapper .gb-menu-dropdown {
+      display: block;
+      background-color: #F5F5F5;
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.45s cubic-bezier(0.77, 0, 0.18, 1), opacity 0.35s ease;
+      opacity: 0;
+    }
+
+    .hero-banner-wrapper .gb-menu-dropdown.is-open {
+      opacity: 1;
+    }
+
+    .hero-banner-wrapper .gb-menu-dropdown .gb-inner {
+      padding-top: 25px;
+      padding-bottom: 25px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .hero-banner-wrapper .gb-menu-tagline {
+      font-size: 16px;
+      font-weight: 400;
+      color: #000;
+      text-align: center;
+      margin: 0;
+    }
+
+    .hero-banner-wrapper .gb-btn--menu {
+      width: 100%;
+      max-width: 244px;
+      justify-content: center;
+    }
+
+    /* Desktop-only full-width image hidden on mobile */
+    .hero-banner-wrapper .gb-hero-full-img {
+      display: none;
+    }
+
+    /* Stack the split panel vertically */
+    .hero-banner-wrapper .gb-hero-split .gb-inner {
+      flex-direction: column;
+      padding-top: 0;
+      padding-bottom: 0;
+      padding-left: 0;
+      padding-right: 0;
+    }
+
+    .hero-banner-wrapper .gb-hero-split__content {
+      padding: 40px clamp(20px, 3.5%, 50px);
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding-right: clamp(20px, 3.5%, 50px);
+    }
+
+    /* Switch visible heading to the shorter mobile copy */
+    .hero-banner-wrapper .gb-hero-heading--desktop {
+      display: none;
+    }
+
+    .hero-banner-wrapper .gb-hero-heading--mobile {
+      display: block;
+      font-size: 30px;
+      margin-bottom: 24px;
+      font-weight: 600;
+    }
+
+    /* Hide the inline CTA on mobile — it appears over the image below */
+    .gb-hero-split__content .gb-btn.gb-btn--hero {
+      display: none;
+    }
+
+    /* Switch visible subtext to the shorter mobile copy */
+    .hero-banner-wrapper .gb-hero-subtext--desktop {
+      display: none;
+    }
+
+    .hero-banner-wrapper .gb-hero-subtext--mobile {
+      display: block;
+      margin-bottom: 0;
+    }
+
+    /* Right image column is hidden; replaced by mobile background block */
+    .hero-banner-wrapper .gb-hero-split__image {
+      display: none;
+    }
+
+    /*
+     * Mobile image block — uses a CSS background-image so the CTA
+     * button can be overlaid absolutely without affecting image height.
+     * The Liquid filter generates a 800 px-wide Shopify CDN URL.
+     */
+    .hero-banner-wrapper .gb-hero-split__image--mobile-btn {
+      display: block;
+      width: 100%;
+      position: relative;
+      min-height: 260px;
+      background-image: url('{{ section.settings.hero_side_image | image_url: width: 800 }}');
+      background-size: cover;
+      background-position: center;
+    }
+
+    /* CTA button pinned to the bottom-centre of the image */
+    .hero-banner-wrapper .gb-hero-split__image--mobile-btn a {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - clamp(40px, 7%, 100px));
+      justify-content: center;
+    }
+
+    /* Ticker shrinks slightly on small screens */
+    .hero-banner-wrapper .gb-ticker {
+      font-size: 14px;
+    }
+
+    /* Mobile ticker shown; desktop ticker hidden */
+    .hero-banner-wrapper .gb-ticker--desktop {
+      display: none;
+    }
+
+    .hero-banner-wrapper .gb-ticker--mobile {
+      display: block;
+    }
+  }
+{%- endstyle -%}
+
+{%- comment -%} ── TOP ROW — header bar ─────────────────────────────────── {%- endcomment -%}
+<section
+  id="hero-banner-{{ section.id }}"
+  class="hero-banner-wrapper"
+  aria-label="{{ section.settings.header_tagline | escape }}"
+>
+  <div class="gb-row--top">
+    <div class="gb-inner">
+
+      {%- comment -%} Hamburger toggle (visible on mobile only via CSS) {%- endcomment -%}
+      <button
+        class="gb-mobile-nav"
+        aria-label="Toggle menu"
+        aria-expanded="false"
+        aria-controls="hero-banner-menu-{{ section.id }}"
+      >
+        <span class="gb-icon-menu" aria-hidden="true">
+          <svg width="20" height="12" viewBox="0 0 20 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 6H19" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M1 1H19" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M1 11H19" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="gb-icon-close" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 13.9994L13.7279 1.27147" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M1 1L13.7279 13.7279" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </button>
+
+      {%- comment -%} Logo — shows image if uploaded, falls back to shop name text {%- endcomment -%}
+      <div class="gb-logo">
+        {%- if section.settings.logo_image != blank -%}
+          <a href="{{ routes.root_url }}" aria-label="{{ shop.name }}">
+            <img
+              src="{{ section.settings.logo_image | image_url: width: 400 }}"
+              alt="{{ section.settings.logo_image.alt | default: shop.name }}"
+              width="{{ section.settings.logo_width_desktop }}"
+              height="auto"
+              loading="eager"
+            >
+          </a>
+        {%- else -%}
+          <a href="{{ routes.root_url }}" class="gb-logo-placeholder" aria-label="{{ shop.name }}">
+            {{ shop.name }}
+          </a>
+        {%- endif -%}
+      </div>
+
+      <p class="gb-tagline">{{ section.settings.header_tagline }}</p>
+
+      {%- comment -%}
+        Desktop CTA button.
+        When no link is set we add `tabindex="-1"` to remove the anchor from
+        tab order and `aria-disabled="true"` to signal the disabled state to
+        assistive technology. Using both together is the correct pattern for
+        anchor elements (unlike <button>, <a> cannot use the `disabled` attribute).
+      {%- endcomment -%}
+      <a
+        href="{{ section.settings.header_btn_link | default: '#' }}"
+        class="gb-btn gb-btn--header gb-desktop-nav"
+        {%- if section.settings.header_btn_link == blank -%}
+          aria-disabled="true"
+          tabindex="-1"
+        {%- endif -%}
+      >
+        {{ section.settings.header_btn_text }}
+        <svg width="26" height="12" viewBox="0 0 26 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M0.75 4.77298L7.37629e-08 4.77298L-7.37629e-08 6.27298L0.75 6.27298L0.75 4.77298ZM25.2803 6.05331C25.5732 5.76042 25.5732 5.28554 25.2803 4.99265L20.5074 0.21968C20.2145 -0.073213 19.7396 -0.0732131 19.4467 0.21968C19.1538 0.512574 19.1538 0.987447 19.4467 1.28034L23.6893 5.52298L19.4467 9.76562C19.1538 10.0585 19.1538 10.5334 19.4467 10.8263C19.7396 11.1192 20.2145 11.1192 20.5074 10.8263L25.2803 6.05331ZM0.75 6.27298L24.75 6.27298L24.75 4.77298L0.75 4.77298L0.75 6.27298Z" fill="black"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+
+  {%- comment -%} ── MOBILE DROPDOWN MENU ──────────────────────────────── {%- endcomment -%}
+  <div
+    class="gb-menu-dropdown"
+    id="hero-banner-menu-{{ section.id }}"
+    aria-hidden="true"
+  >
+    <div class="gb-inner">
+      <p class="gb-menu-tagline">{{ section.settings.header_tagline }}</p>
+      <a
+        href="{{ section.settings.header_btn_link | default: '#' }}"
+        class="gb-btn gb-btn--menu"
+        {%- if section.settings.header_btn_link == blank -%}
+          aria-disabled="true"
+          tabindex="-1"
+        {%- endif -%}
+      >
+        {{ section.settings.header_btn_text }}
+        <svg width="26" height="12" viewBox="0 0 26 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M0.75 4.77298L7.37629e-08 4.77298L-7.37629e-08 6.27298L0.75 6.27298L0.75 4.77298ZM25.2803 6.05331C25.5732 5.76042 25.5732 5.28554 25.2803 4.99265L20.5074 0.21968C20.2145 -0.073213 19.7396 -0.0732131 19.4467 0.21968C19.1538 0.512574 19.1538 0.987447 19.4467 1.28034L23.6893 5.52298L19.4467 9.76562C19.1538 10.0585 19.1538 10.5334 19.4467 10.8263C19.7396 11.1192 20.2145 11.1192 20.5074 10.8263L25.2803 6.05331ZM0.75 6.27298L24.75 6.27298L24.75 4.77298L0.75 4.77298L0.75 6.27298Z" fill="black"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+
+  {%- comment -%} ── MIDDLE ROW ────────────────────────────────────────── {%- endcomment -%}
+  <div class="gb-row--middle">
+
+    {%- comment -%} Full-width banner image (desktop only, hidden on mobile via CSS) {%- endcomment -%}
+    <div class="gb-hero-full-img">
+      {%- if section.settings.hero_full_image != blank -%}
+        <img
+          src="{{ section.settings.hero_full_image | image_url: width: 1440 }}"
+          alt="{{ section.settings.hero_full_image.alt | default: '' }}"
+          width="1440"
+          height="auto"
+          loading="eager"
+        >
+      {%- endif -%}
+    </div>
+
+    {%- comment -%} Split panel: text content (left) + side image (right) {%- endcomment -%}
+    <div class="gb-hero-split">
+      <div class="gb-inner">
+        <div class="gb-hero-split__content">
+
+          {%- comment -%}
+            Two <h1> elements exist for desktop vs mobile copy.
+            Only one is visible at a time via CSS display:none.
+            The hidden one gets aria-hidden="true" so screen readers
+            don't encounter duplicate headings.
+          {%- endcomment -%}
+          <h1 class="gb-hero-heading gb-hero-heading--desktop">
+            {{ section.settings.hero_heading_desktop }}
+          </h1>
+          <h1 class="gb-hero-heading gb-hero-heading--mobile" aria-hidden="true">
+            {{ section.settings.hero_heading_mobile }}
+          </h1>
+
+          {%- if section.settings.hero_subtext_desktop != blank -%}
+            <p class="gb-hero-subtext gb-hero-subtext--desktop">{{ section.settings.hero_subtext_desktop }}</p>
+          {%- endif -%}
+
+          {%- if section.settings.hero_subtext_mobile != blank -%}
+            <p class="gb-hero-subtext gb-hero-subtext--mobile" aria-hidden="true">{{ section.settings.hero_subtext_mobile }}</p>
+          {%- endif -%}
+
+          <a
+            href="{{ section.settings.hero_btn_link | default: '#' }}"
+            class="gb-btn gb-btn--hero"
+            {%- if section.settings.hero_btn_link == blank -%}
+              aria-disabled="true"
+              tabindex="-1"
+            {%- endif -%}
+          >
+            {{ section.settings.hero_btn_text }}
+            <svg width="26" height="12" viewBox="0 0 26 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M0.75 4.77298L7.37629e-08 4.77298L-7.37629e-08 6.27298L0.75 6.27298L0.75 4.77298ZM25.2803 6.05331C25.5732 5.76042 25.5732 5.28554 25.2803 4.99265L20.5074 0.21968C20.2145 -0.073213 19.7396 -0.0732131 19.4467 0.21968C19.1538 0.512574 19.1538 0.987447 19.4467 1.28034L23.6893 5.52298L19.4467 9.76562C19.1538 10.0585 19.1538 10.5334 19.4467 10.8263C19.7396 11.1192 20.2145 11.1192 20.5074 10.8263L25.2803 6.05331ZM0.75 6.27298L24.75 6.27298L24.75 4.77298L0.75 4.77298L0.75 6.27298Z" fill="black"/>
+            </svg>
+          </a>
+        </div>
+
+        {%- comment -%} Right image column — desktop only {%- endcomment -%}
+        <div class="gb-hero-split__image" aria-hidden="true">
+          {%- if section.settings.hero_side_image != blank -%}
+            <img
+              src="{{ section.settings.hero_side_image | image_url: width: 800 }}"
+              alt="{{ section.settings.hero_side_image.alt | default: '' }}"
+              width="800"
+              height="auto"
+              loading="eager"
+            >
+          {%- endif -%}
+        </div>
+      </div>
+    </div>
+
+    {%- comment -%}
+      Mobile-only image block — uses a CSS background-image (set in
+      {%- style -%}) so the CTA button can sit absolutely on top.
+    {%- endcomment -%}
+    <div
+      class="gb-hero-split__image--mobile-btn"
+      role="img"
+      aria-label="{{ section.settings.hero_side_image.alt | default: '' }}"
+    >
+      <a
+        href="{{ section.settings.hero_btn_link | default: '#' }}"
+        class="gb-btn gb-btn--hero"
+        {%- if section.settings.hero_btn_link == blank -%}
+          aria-disabled="true"
+          tabindex="-1"
+        {%- endif -%}
+      >
+        {{ section.settings.hero_btn_text }}
+        <svg width="26" height="12" viewBox="0 0 26 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M0.75 4.77298L7.37629e-08 4.77298L-7.37629e-08 6.27298L0.75 6.27298L0.75 4.77298ZM25.2803 6.05331C25.5732 5.76042 25.5732 5.28554 25.2803 4.99265L20.5074 0.21968C20.2145 -0.073213 19.7396 -0.0732131 19.4467 0.21968C19.1538 0.512574 19.1538 0.987447 19.4467 1.28034L23.6893 5.52298L19.4467 9.76562C19.1538 10.0585 19.1538 10.5334 19.4467 10.8263C19.7396 11.1192 20.2145 11.1192 20.5074 10.8263L25.2803 6.05331ZM0.75 6.27298L24.75 6.27298L24.75 4.77298L0.75 4.77298L0.75 6.27298Z" fill="black"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+
+  {%- comment -%} ── BOTTOM ROW — text ticker ──────────────────────────── {%- endcomment -%}
+  <div class="gb-row--bottom">
+    <div class="gb-inner">
+      <p class="gb-ticker gb-ticker--desktop">{{ section.settings.ticker_text_desktop }}</p>
+      <p class="gb-ticker gb-ticker--mobile">{{ section.settings.ticker_text_mobile }}</p>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  'use strict';
+
+  // Scope everything to this specific section instance so the section
+  // can safely be used multiple times on the same page.
+  const sectionEl  = document.getElementById('hero-banner-{{ section.id }}');
+  if (!sectionEl) return;
+
+  const toggleBtn = sectionEl.querySelector('.gb-mobile-nav');
+  const dropdown  = sectionEl.querySelector('.gb-menu-dropdown');
+  if (!toggleBtn || !dropdown) return;
+
+  let isOpen = false;
+
+  /**
+   * openMenu — expands the mobile dropdown.
+   * max-height is set to the element's actual scrollHeight so the
+   * CSS transition animates from 0 to the real content height.
+   */
+  function openMenu() {
+    isOpen = true;
+    toggleBtn.classList.add('is-open');
+    toggleBtn.setAttribute('aria-expanded', 'true');
+    dropdown.setAttribute('aria-hidden', 'false');
+    dropdown.style.maxHeight = dropdown.scrollHeight + 'px';
+    dropdown.classList.add('is-open');
+  }
+
+  /**
+   * closeMenu — collapses the mobile dropdown back to zero height.
+   */
+  function closeMenu() {
+    isOpen = false;
+    toggleBtn.classList.remove('is-open');
+    toggleBtn.setAttribute('aria-expanded', 'false');
+    dropdown.setAttribute('aria-hidden', 'true');
+    dropdown.style.maxHeight = '0';
+    dropdown.classList.remove('is-open');
+  }
+
+  // Toggle on hamburger click
+  toggleBtn.addEventListener('click', function () {
+    if (isOpen) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  });
+
+  // Auto-close if the viewport grows past the mobile breakpoint
+  // (e.g. user rotates device from portrait to landscape)
+  window.addEventListener('resize', function () {
+    if (window.innerWidth > 768 && isOpen) {
+      closeMenu();
+    }
+  });
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Hero Banner",
+  "class": "hero-banner-wrapper",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Logo"
+    },
+    {
+      "type": "image_picker",
+      "id": "logo_image",
+      "label": "Logo image"
+    },
+    {
+      "type": "range",
+      "id": "logo_width_desktop",
+      "label": "Logo width — desktop (px)",
+      "min": 60,
+      "max": 300,
+      "step": 4,
+      "default": 140
+    },
+    {
+      "type": "range",
+      "id": "logo_width_mobile",
+      "label": "Logo width — mobile (px)",
+      "min": 60,
+      "max": 200,
+      "step": 4,
+      "default": 100
+    },
+    {
+      "type": "header",
+      "content": "Top Row — Header Bar"
+    },
+    {
+      "type": "text",
+      "id": "header_tagline",
+      "label": "Tagline text",
+      "default": "Find the ideal gift for your loved ones."
+    },
+    {
+      "type": "text",
+      "id": "header_btn_text",
+      "label": "Button label",
+      "default": "Choose Gift"
+    },
+    {
+      "type": "url",
+      "id": "header_btn_link",
+      "label": "Button link"
+    },
+    {
+      "type": "header",
+      "content": "Middle Row — Full Width Image"
+    },
+    {
+      "type": "image_picker",
+      "id": "hero_full_image",
+      "label": "Full-width image (desktop only)"
+    },
+    {
+      "type": "header",
+      "content": "Middle Row — Content & Side Image"
+    },
+    {
+      "type": "textarea",
+      "id": "hero_heading_desktop",
+      "label": "Heading — desktop",
+      "default": "The Gift Guide"
+    },
+    {
+      "type": "textarea",
+      "id": "hero_heading_mobile",
+      "label": "Heading — mobile",
+      "default": "The Gift Guide"
+    },
+    {
+      "type": "textarea",
+      "id": "hero_subtext_desktop",
+      "label": "Subtext — desktop",
+      "default": "Discover Joy: Your Ultimate Holiday Gift Destination. Explore our curated selection and find the perfect gifts to delight your loved ones this holiday season."
+    },
+    {
+      "type": "textarea",
+      "id": "hero_subtext_mobile",
+      "label": "Subtext — mobile",
+      "default": "Discover Joy: Your Ultimate Holiday Gift Destination."
+    },
+    {
+      "type": "text",
+      "id": "hero_btn_text",
+      "label": "Button label",
+      "default": "Shop Now"
+    },
+    {
+      "type": "url",
+      "id": "hero_btn_link",
+      "label": "Button link"
+    },
+    {
+      "type": "image_picker",
+      "id": "hero_side_image",
+      "label": "Side image (desktop right col / mobile bg)"
+    },
+    {
+      "type": "header",
+      "content": "Bottom Row — Ticker"
+    },
+    {
+      "type": "text",
+      "id": "ticker_text_desktop",
+      "label": "Ticker text — desktop",
+      "default": "Sustainable, ethically made clothes in sizes XXS to 6XL"
+    },
+    {
+      "type": "text",
+      "id": "ticker_text_mobile",
+      "label": "Ticker text — mobile",
+      "default": "Sustainable, ethically made activewear"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Hero Banner"
+    }
+  ]
+}
+{% endschema %}

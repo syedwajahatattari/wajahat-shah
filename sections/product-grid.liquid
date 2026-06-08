@@ -1,0 +1,1344 @@
+{% comment %}
+  Section: Shoppable Lookbook
+  ─────────────────────────────────────────────────────────────
+  Structure:
+    • A CSS grid of lookbook images — each item is a "block" added
+      in the theme editor (type: product).
+    • Each image has a hotspot (+) button whose position is set
+      independently for desktop and mobile via schema range sliders.
+    • Clicking a hotspot opens a modal popup with product info,
+      variant selectors (colour swatches + size dropdown), and an
+      Add to Cart button backed by the Shopify Cart AJAX API.
+
+  Bundle add-on:
+    When the shopper picks Black + M on any main product, the JS
+    automatically adds a configurable "addon product" (set in section
+    settings) at the same time. The bundle variant is fetched via
+    /products/[handle].js at click time.
+
+  Accessibility:
+    • Modal is a <div role="dialog" aria-modal="true">
+    • A focus trap keeps Tab/Shift+Tab inside the modal while it is open
+    • Escape key closes the modal
+    • A <div role="status"> announces ATC state to screen readers
+  ─────────────────────────────────────────────────────────────
+{% endcomment %}
+
+{%- style -%}
+  @import url('https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600&display=swap');
+
+  /* ── Section wrapper ──────────────────────────────────────── */
+  .lookbook-section {
+    font-family: 'Jost', sans-serif;
+    width: 100%;
+    padding: 60px 3.5%;
+    box-sizing: border-box;
+    background: #fff;
+  }
+
+  .lookbook-section__inner {
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+
+  /* ── Section heading ──────────────────────────────────────── */
+  .lookbook-section__heading {
+    font-family: 'Jost', sans-serif;
+    font-size: 36px;
+    font-weight: 300;
+    letter-spacing: 0.04em;
+    color: #000;
+    margin: 0 0 30px 0;
+    line-height: 1.1;
+  }
+
+  /* ── 3-column image grid ──────────────────────────────────── */
+  .lookbook-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  /* ── Individual grid item ─────────────────────────────────── */
+  .lookbook-item {
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    aspect-ratio: 3 / 4;
+  }
+
+  .lookbook-item__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.5s ease;
+  }
+
+  /* Subtle zoom on grid-item hover */
+  .lookbook-item:hover .lookbook-item__image {
+    transform: scale(1.03);
+  }
+
+  /* ── Hotspot button ───────────────────────────────────────── */
+  .lookbook-item__hotspot {
+    position: absolute;
+    cursor: pointer;
+    /*
+     * transform: translate(-50%, -50%) centres the button on its
+     * percentage-based top/left position (set inline via schema).
+     */
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    border: none;
+    background: none;
+    padding: 0;
+    line-height: 0;
+    transition: transform 0.2s ease;
+  }
+
+  .lookbook-item__hotspot:hover {
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+
+  .lookbook-item__hotspot svg {
+    width: 22px;
+    height: 22px;
+    display: block;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+  }
+
+  /* ── Modal overlay ────────────────────────────────────────── */
+  /*
+   * The overlay is always in the DOM (opacity: 0, pointer-events: none)
+   * so it can transition smoothly on open. `position: fixed` and a high
+   * z-index place it above all page content.
+   */
+  .lookbook-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 9998;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  .lookbook-overlay.is-active {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  /* ── Modal popup ──────────────────────────────────────────── */
+  .lookbook-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    /* Starts slightly above centre and slightly scaled down for the open animation */
+    transform: translate(-50%, -48%) scale(0.97);
+    z-index: 9999; /* one above the overlay */
+    background: #fff;
+    width: 90%;
+    max-width: 340px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 32px 17px;
+    box-sizing: border-box;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+
+  .lookbook-popup.is-active {
+    opacity: 1;
+    pointer-events: all;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* ── Close button (×) ─────────────────────────────────────── */
+  .lookbook-popup__close {
+    position: absolute;
+    top: 18px;
+    right: 22px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: 'Jost', sans-serif;
+    font-size: 22px;
+    font-weight: 300;
+    color: #111;
+    line-height: 1;
+    padding: 0;
+    letter-spacing: 0;
+  }
+
+  /* ── Popup body: thumbnail + info ────────────────────────── */
+  .lookbook-popup__body {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  .lookbook-popup__thumb {
+    width: 120px;
+    flex-shrink: 0;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+  }
+
+  .lookbook-popup__info {
+    flex: 1;
+    padding-top: 4px;
+  }
+
+  .lookbook-popup__title {
+    font-family: 'Jost', sans-serif;
+    font-size: 16px;
+    font-weight: 300;
+    letter-spacing: 0.02em;
+    color: #111;
+    margin: 0 0 10px;
+  }
+
+  .lookbook-popup__price {
+    font-family: 'Jost', sans-serif;
+    font-size: 17px;
+    font-weight: 400;
+    color: #111;
+    margin: 0 0 12px;
+  }
+
+  .lookbook-popup__desc {
+    font-family: 'Jost', sans-serif;
+    font-size: 14px;
+    font-weight: 300;
+    color: #555;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  /* ── Variant option containers ────────────────────────────── */
+  .lookbook-popup__options {
+    padding-top: 10px;
+  }
+
+  .lookbook-popup__option-label {
+    font-family: 'Jost', sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    color: #333;
+    margin: 0 0 1px;
+  }
+
+  /* ── Colour swatch buttons ────────────────────────────────── */
+  .lookbook-color-btns {
+    display: flex;
+    gap: 0;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .lookbook-color-btn {
+    font-family: 'Jost', sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    padding: 10px 20px;
+    border: none;
+    border-left: 4px solid transparent;
+    background: #fff;
+    cursor: pointer;
+    color: #111;
+    letter-spacing: 0.01em;
+    flex: 1;
+    text-align: left;
+    position: relative;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+
+  /* Divider line between adjacent colour buttons */
+  .lookbook-color-btn + .lookbook-color-btn {
+    border-left: 1px solid #d0d0d0;
+  }
+
+  /*
+   * Colour bar — a thin vertical strip on the left edge of each
+   * button whose colour is driven by the --color-bar CSS custom
+   * property set inline via JS (colorNameToHex).
+   */
+  .lookbook-color-btn[data-color-bar]::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--color-bar, #ccc);
+  }
+
+  /* Selected state */
+  .lookbook-color-btn.is-selected {
+    background: #111;
+    color: #fff;
+  }
+
+  /* Keep the colour bar visible when the button is selected */
+  .lookbook-color-btn.is-selected[data-color-bar]::after {
+    background: var(--color-bar, #ccc);
+  }
+
+  /* ── Size dropdown ────────────────────────────────────────── */
+  .lookbook-size-select {
+    position: relative;
+    margin-bottom: 24px;
+  }
+
+  .lookbook-size-select__trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 16px;
+    border: 1px solid #d0d0d0;
+    cursor: pointer;
+    font-family: 'Jost', sans-serif;
+    font-size: 14px;
+    font-weight: 300;
+    color: #666;
+    background: #fff;
+    box-sizing: border-box;
+    user-select: none;
+  }
+
+  /* Chevron arrow rotates 180° when dropdown is open */
+  .lookbook-size-select__trigger svg {
+    transition: transform 0.25s ease;
+    flex-shrink: 0;
+  }
+
+  .lookbook-size-select.is-open .lookbook-size-select__trigger svg {
+    transform: rotate(180deg);
+  }
+
+  .lookbook-size-select__dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    border: 1px solid #d0d0d0;
+    border-top: none;
+    background: #fff;
+    z-index: 10;
+    display: none;
+  }
+
+  .lookbook-size-select.is-open .lookbook-size-select__dropdown {
+    display: block;
+  }
+
+  .lookbook-size-option {
+    padding: 12px 16px;
+    font-family: 'Jost', sans-serif;
+    font-size: 14px;
+    font-weight: 300;
+    color: #111;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s ease;
+  }
+
+  .lookbook-size-option:hover {
+    background: #f5f5f5;
+  }
+
+  .lookbook-size-option.is-selected {
+    font-weight: 500;
+  }
+
+  /* ── Add to Cart button ───────────────────────────────────── */
+  .lookbook-atc-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 18px 24px;
+    background: #000;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-family: 'Jost', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+    transition: color 0.35s ease;
+  }
+
+  .lookbook-atc-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  /* Yellow fill slides in from the left on hover */
+  .lookbook-atc-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: #FFF544;
+    transform: translateX(-100%);
+    transition: transform 0.4s ease;
+    z-index: 0;
+  }
+
+  .lookbook-atc-btn:hover:not(:disabled)::before {
+    transform: translateX(0);
+  }
+
+  .lookbook-atc-btn:hover:not(:disabled) {
+    color: #000;
+  }
+
+  .lookbook-atc-btn:hover:not(:disabled) .lookbook-atc-arrow path {
+    fill: #000;
+  }
+
+  /* Text and arrow sit above the pseudo-element fill */
+  .lookbook-atc-btn__text,
+  .lookbook-atc-arrow {
+    position: relative;
+    z-index: 1;
+  }
+
+  .lookbook-atc-arrow {
+    display: flex;
+    align-items: center;
+  }
+
+  .lookbook-atc-arrow path {
+    transition: fill 0.35s ease;
+  }
+
+  /* ── Loading spinner (shown while cart request is in flight) ─ */
+  .lookbook-atc-btn .lookbook-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: lookbook-spin 0.7s linear infinite;
+    position: relative;
+    z-index: 1;
+    display: none;
+  }
+
+  .lookbook-atc-btn.is-loading .lookbook-spinner { display: block; }
+  .lookbook-atc-btn.is-loading .lookbook-atc-btn__text,
+  .lookbook-atc-btn.is-loading .lookbook-atc-arrow { display: none; }
+
+  @keyframes lookbook-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ── Inline error message (replaces alert()) ──────────────── */
+  .lookbook-error-msg {
+    display: none;
+    font-family: 'Jost', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: #c0392b;
+    text-align: center;
+    padding: 8px 0 0;
+  }
+
+  .lookbook-error-msg.is-visible {
+    display: block;
+  }
+
+  /* ── Post-ATC confirmation block ──────────────────────────── */
+  .lookbook-post-atc {
+    display: none;
+    padding-top: 16px;
+  }
+
+  .lookbook-post-atc.is-visible {
+    display: block;
+  }
+
+  .lookbook-post-atc__msg {
+    font-family: 'Jost', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: #111;
+    letter-spacing: 0.04em;
+    text-align: center;
+    margin-bottom: 12px;
+  }
+
+  .lookbook-post-atc__actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .lookbook-post-atc__btn {
+    flex: 1;
+    padding: 13px 10px;
+    font-family: 'Jost', sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: center;
+    text-decoration: none;
+    border: 1px solid #111;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+    display: block;
+    color: #111;
+    background: #fff;
+  }
+
+  .lookbook-post-atc__btn--filled {
+    background: #111;
+    color: #fff;
+  }
+
+  .lookbook-post-atc__btn:hover {
+    background: #111;
+    color: #fff;
+  }
+
+  .lookbook-post-atc__btn--filled:hover {
+    background: #333;
+  }
+
+  /* ── Responsive — 767 px and below ───────────────────────── */
+  @media (max-width: 767px) {
+    .lookbook-section {
+      padding: 40px 3.5%;
+    }
+
+    /* Switch to a 2-column grid with tighter gaps on mobile */
+    .lookbook-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 4px;
+    }
+
+    /* Smaller hotspot icon on mobile */
+    .lookbook-item__hotspot svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    .lookbook-popup {
+      width: 95%;
+      padding: 24px 18px;
+      max-height: 95vh;
+    }
+
+    /* Stack thumbnail above product info on narrow screens */
+    .lookbook-popup__body {
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .lookbook-popup__thumb {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+    }
+  }
+{%- endstyle -%}
+
+{%- comment -%} ── LOOKBOOK GRID ─────────────────────────────────────── {%- endcomment -%}
+<section
+  class="lookbook-section"
+  id="lookbook-{{ section.id }}"
+  aria-label="{{ section.settings.heading | escape }}"
+>
+  <div class="lookbook-section__inner">
+
+    {%- if section.settings.heading != blank -%}
+      <h2 class="lookbook-section__heading">{{ section.settings.heading }}</h2>
+    {%- endif -%}
+
+    <div class="lookbook-grid">
+      {%- for block in section.blocks -%}
+        {%- assign product_obj = block.settings.product -%}
+        {%- if block.type == 'product' and product_obj != blank -%}
+
+          {%- comment -%}
+            Use a custom image if the merchant uploaded one; otherwise
+            fall back to the product's featured image.
+          {%- endcomment -%}
+          {%- assign item_image = block.settings.custom_image | default: product_obj.featured_image -%}
+
+          <div
+            class="lookbook-item"
+            {{ block.shopify_attributes }}
+          >
+            {%- if item_image != blank -%}
+              <img
+                class="lookbook-item__image"
+                src="{{ item_image | image_url: width: 800 }}"
+                alt="{{ item_image.alt | default: product_obj.title | escape }}"
+                width="800"
+                loading="lazy"
+              >
+            {%- endif -%}
+
+            {%- comment -%}
+              Hotspot button — desktop position set inline via style attribute;
+              mobile position stored in data attributes and applied by JS.
+              `aria-haspopup="dialog"` signals to assistive tech that this
+              button opens a modal dialog.
+            {%- endcomment -%}
+            <button
+              class="lookbook-item__hotspot"
+              style="top: {{ block.settings.hotspot_top_desktop }}%; left: {{ block.settings.hotspot_left_desktop }}%;"
+              data-mobile-top="{{ block.settings.hotspot_top_mobile }}"
+              data-mobile-left="{{ block.settings.hotspot_left_mobile }}"
+              data-product-id="{{ product_obj.id }}"
+              aria-label="Quick view {{ product_obj.title | escape }}"
+              aria-haspopup="dialog"
+            >
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="11" cy="11" r="11" fill="#F8F8F8" fill-opacity="0.9"/>
+                <path d="M11.3457 7.04175V15.5033" stroke="black" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"/>
+                <path d="M7.11523 11.2725H15.5768" stroke="black" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"/>
+              </svg>
+            </button>
+
+            {%- comment -%}
+              Inline JSON blob — one per product block.
+              JS reads this at click time instead of making an extra API
+              call, keeping the popup open instant.
+              `handle` is included so the bundle trigger check can compare
+              against BUNDLE_PRODUCT_HANDLE without a network round-trip.
+            {%- endcomment -%}
+            <script type="application/json" data-product-json="{{ product_obj.id }}">
+              {
+                "id": {{ product_obj.id }},
+                "handle": {{ product_obj.handle | json }},
+                "title": {{ product_obj.title | json }},
+                "price": {{ product_obj.price | money | json }},
+                "description": {{ product_obj.description | strip_html | truncate: 180 | json }},
+                "image": {{ item_image | image_url: width: 600 | json }},
+                "image_alt": {{ item_image.alt | default: product_obj.title | json }},
+                "url": {{ product_obj.url | json }},
+                "options": [
+                  {%- for option in product_obj.options_with_values -%}
+                    {
+                      "name": {{ option.name | json }},
+                      "values": {{ option.values | json }}
+                    }{%- unless forloop.last -%},{%- endunless -%}
+                  {%- endfor -%}
+                ],
+                "variants": [
+                  {%- for variant in product_obj.variants -%}
+                    {
+                      "id": {{ variant.id }},
+                      "title": {{ variant.title | json }},
+                      "option1": {{ variant.option1 | json }},
+                      "option2": {{ variant.option2 | json }},
+                      "option3": {{ variant.option3 | json }},
+                      "available": {{ variant.available }},
+                      "price": {{ variant.price | money | json }}
+                    }{%- unless forloop.last -%},{%- endunless -%}
+                  {%- endfor -%}
+                ]
+              }
+            </script>
+
+          </div>
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+  </div>
+</section>
+
+{%- comment -%} ── OVERLAY — dims the page behind the popup ────────── {%- endcomment -%}
+<div
+  class="lookbook-overlay"
+  id="lookbook-overlay-{{ section.id }}"
+  role="presentation"
+  aria-hidden="true"
+></div>
+
+{%- comment -%} ── POPUP MODAL ───────────────────────────────────────── {%- endcomment -%}
+<div
+  class="lookbook-popup"
+  id="lookbook-popup-{{ section.id }}"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Product quick view"
+>
+  <button class="lookbook-popup__close" aria-label="Close quick view">&#10005;</button>
+
+  <div class="lookbook-popup__body">
+    <img class="lookbook-popup__thumb" src="" alt="" width="220" loading="lazy">
+    <div class="lookbook-popup__info">
+      <h3 class="lookbook-popup__title"></h3>
+      <p class="lookbook-popup__price"></p>
+      <p class="lookbook-popup__desc"></p>
+    </div>
+  </div>
+
+  <div class="lookbook-popup__options"></div>
+
+  {%- comment -%}
+    The error paragraph sits between the options and the ATC button
+    so validation messages appear in context without a disruptive alert().
+  {%- endcomment -%}
+  <p class="lookbook-error-msg" role="alert"></p>
+
+  <button class="lookbook-atc-btn">
+    <span class="lookbook-spinner" aria-hidden="true"></span>
+    <span class="lookbook-atc-btn__text">Add to Cart</span>
+    <span class="lookbook-atc-arrow" aria-hidden="true">
+      <svg width="26" height="12" viewBox="0 0 26 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M0.75 4.77298L7.37629e-08 4.77298L-7.37629e-08 6.27298L0.75 6.27298L0.75 4.77298ZM25.2803 6.05331C25.5732 5.76042 25.5732 5.28554 25.2803 4.99265L20.5074 0.21968C20.2145 -0.073213 19.7396 -0.0732131 19.4467 0.21968C19.1538 0.512574 19.1538 0.987447 19.4467 1.28034L23.6893 5.52298L19.4467 9.76562C19.1538 10.0585 19.1538 10.5334 19.4467 10.8263C19.7396 11.1192 20.2145 11.1192 20.5074 10.8263L25.2803 6.05331ZM0.75 6.27298L24.75 6.27298L24.75 4.77298L0.75 4.77298L0.75 6.27298Z" fill="currentColor"/>
+      </svg>
+    </span>
+  </button>
+
+  {%- comment -%}
+    role="status" is a live region — screen readers announce changes
+    to its text content without requiring focus to move there.
+    The JS writes ATC feedback messages here instead of using alert().
+  {%- endcomment -%}
+  <div class="lookbook-post-atc">
+    <p class="lookbook-post-atc__msg" role="status" aria-live="polite">&#10003; Product Added to Cart</p>
+    <div class="lookbook-post-atc__actions">
+      <a href="/cart" class="lookbook-post-atc__btn">View Cart</a>
+      <a href="/checkout" class="lookbook-post-atc__btn lookbook-post-atc__btn--filled">Checkout</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Section-scoped element references ───────────────────────
+  // Using section.id means multiple lookbook sections on the same
+  // page won't interfere with each other.
+  const sectionId = '{{ section.id }}';
+  const overlay   = document.getElementById('lookbook-overlay-' + sectionId);
+  const popup     = document.getElementById('lookbook-popup-' + sectionId);
+
+  if (!overlay || !popup) return;
+
+  const closeBtn  = popup.querySelector('.lookbook-popup__close');
+  const thumbEl   = popup.querySelector('.lookbook-popup__thumb');
+  const titleEl   = popup.querySelector('.lookbook-popup__title');
+  const priceEl   = popup.querySelector('.lookbook-popup__price');
+  const descEl    = popup.querySelector('.lookbook-popup__desc');
+  const optionsEl = popup.querySelector('.lookbook-popup__options');
+  const atcBtn    = popup.querySelector('.lookbook-atc-btn');
+  const atcText   = atcBtn.querySelector('.lookbook-atc-btn__text');
+  const postAtc   = popup.querySelector('.lookbook-post-atc');
+  const errorMsg  = popup.querySelector('.lookbook-error-msg');
+
+  // ── Bundle add-on configuration ──────────────────────────────
+  // When a shopper picks the colour + size defined below on any main
+  // product, we automatically add the configured addon product too.
+  // The handle comes from the section schema; colour/size are per
+  // the task specification and intentionally hardcoded.
+  const BUNDLE_PRODUCT_HANDLE = '{{ section.settings.addon_product }}';
+  const BUNDLE_TRIGGER_COLOR  = 'black';
+  const BUNDLE_TRIGGER_SIZE   = 'm';
+
+  // ── State ─────────────────────────────────────────────────────
+  let currentProduct   = null;
+  let selectedVariantId = null;
+  let selectedOptions   = {};
+
+  // Tracks the AbortController for the size-dropdown click-outside
+  // listener so we can remove it cleanly when the popup closes.
+  let outsideClickController = null;
+
+  // ── Utility: detect mobile viewport ─────────────────────────
+  function isMobile() {
+    return window.innerWidth < 768;
+  }
+
+  // ── Debounce helper ──────────────────────────────────────────
+  // Prevents the resize handler from firing hundreds of times per
+  // second while the user drags the window edge.
+  function debounce(fn, wait) {
+    let timer;
+    return function () {
+      clearTimeout(timer);
+      timer = setTimeout(fn, wait);
+    };
+  }
+
+  // ── Hotspot position management ──────────────────────────────
+  /**
+   * applyHotspotPositions — reads mobile or desktop coordinates from
+   * each hotspot button and writes them as inline styles.
+   * Mobile top/left come from data attributes (set via schema sliders).
+   * Desktop top/left are already set as inline styles by Liquid and
+   * are re-parsed here to handle the toggle cleanly.
+   */
+  function applyHotspotPositions() {
+    document.querySelectorAll('#lookbook-' + sectionId + ' .lookbook-item__hotspot').forEach(function (btn) {
+      if (isMobile()) {
+        btn.style.top  = btn.dataset.mobileTop + '%';
+        btn.style.left = btn.dataset.mobileLeft + '%';
+      } else {
+        // Re-apply desktop values from the original inline style attribute
+        const styles    = btn.getAttribute('style');
+        const topMatch  = styles.match(/top:\s*([\d.]+)%/);
+        const leftMatch = styles.match(/left:\s*([\d.]+)%/);
+        if (topMatch)  btn.style.top  = topMatch[1]  + '%';
+        if (leftMatch) btn.style.left = leftMatch[1] + '%';
+      }
+    });
+  }
+
+  window.addEventListener('resize', debounce(applyHotspotPositions, 150));
+
+  // ── Variant resolution ────────────────────────────────────────
+  /**
+   * updateSelectedVariant — finds the variant whose option values
+   * match every entry in `selectedOptions` and stores its ID.
+   * If no exact match is found, selectedVariantId is set to null.
+   */
+  function updateSelectedVariant() {
+    if (!currentProduct) return;
+    const variant = currentProduct.variants.find(function (v) {
+      return currentProduct.options.every(function (opt, i) {
+        return !selectedOptions[opt.name] || v['option' + (i + 1)] === selectedOptions[opt.name];
+      });
+    });
+    selectedVariantId = variant ? variant.id : null;
+  }
+
+  // ── Colour mapping ────────────────────────────────────────────
+  /**
+   * colorNameToHex — maps common English colour names to hex codes
+   * for the vertical colour-bar on each swatch button.
+   * Falls back to using the lowercased name directly (works for CSS
+   * named colours like "coral", "salmon", etc.).
+   */
+  function colorNameToHex(name) {
+    const map = {
+      red:    '#c0392b', grey:   '#9e9e9e', gray:   '#9e9e9e',
+      black:  '#111111', white:  '#f5f5f5', blue:   '#2563eb',
+      navy:   '#1e3a5f', green:  '#27ae60', yellow: '#f1c40f',
+      orange: '#e67e22', pink:   '#e91e8c', purple: '#8e44ad',
+      brown:  '#795548', beige:  '#d7c4a3', cream:  '#fffdd0',
+      gold:   '#c9a84c', silver: '#aaaaaa', teal:   '#009688',
+      maroon: '#800000', olive:  '#808000'
+    };
+    return map[name.toLowerCase().trim()] || name.toLowerCase().trim();
+  }
+
+  // ── Option builder ────────────────────────────────────────────
+  /**
+   * buildOptions — dynamically creates the colour swatch row and/or
+   * size dropdown for the current product.
+   *
+   * Rendering order: Colour → Size → any other options.
+   * This matches the conventional display order in most Shopify themes.
+   *
+   * The size dropdown click-outside handler is registered once via
+   * AbortController so it is properly cleaned up on popup close.
+   */
+  function buildOptions(product) {
+    optionsEl.innerHTML = '';
+    selectedOptions = {};
+
+    // Cancel any previous outside-click listener before adding a new one
+    if (outsideClickController) {
+      outsideClickController.abort();
+    }
+    outsideClickController = new AbortController();
+
+    // Sort options: colour first, then size, then anything else
+    const colorOpts = product.options.filter(function (o) { return o.name.toLowerCase() === 'color'; });
+    const sizeOpts  = product.options.filter(function (o) { return o.name.toLowerCase() === 'size'; });
+    const otherOpts = product.options.filter(function (o) {
+      return o.name.toLowerCase() !== 'color' && o.name.toLowerCase() !== 'size';
+    });
+    const ordered = colorOpts.concat(sizeOpts).concat(otherOpts);
+
+    ordered.forEach(function (opt) {
+      // Option label (e.g. "Colour", "Size")
+      const label = document.createElement('p');
+      label.className = 'lookbook-popup__option-label';
+      label.textContent = opt.name;
+      optionsEl.appendChild(label);
+
+      const isColor = opt.name.toLowerCase() === 'color';
+      const isSize  = opt.name.toLowerCase() === 'size';
+
+      if (isColor) {
+        // ── Colour swatches ──────────────────────────────────
+        const wrap = document.createElement('div');
+        wrap.className = 'lookbook-color-btns';
+
+        opt.values.forEach(function (val, idx) {
+          const btn = document.createElement('button');
+          btn.className = 'lookbook-color-btn';
+          btn.textContent = val;
+          btn.setAttribute('data-color-bar', '');
+          btn.style.setProperty('--color-bar', colorNameToHex(val));
+
+          // Pre-select the first colour
+          if (idx === 0) {
+            btn.classList.add('is-selected');
+            selectedOptions[opt.name] = val;
+          }
+
+          btn.addEventListener('click', function () {
+            wrap.querySelectorAll('.lookbook-color-btn').forEach(function (b) {
+              b.classList.remove('is-selected');
+            });
+            btn.classList.add('is-selected');
+            selectedOptions[opt.name] = val;
+            updateSelectedVariant();
+          });
+
+          wrap.appendChild(btn);
+        });
+
+        optionsEl.appendChild(wrap);
+
+      } else if (isSize) {
+        // ── Size custom dropdown ─────────────────────────────
+        const selectWrap = document.createElement('div');
+        selectWrap.className = 'lookbook-size-select';
+
+        const trigger = document.createElement('div');
+        trigger.className = 'lookbook-size-select__trigger';
+        trigger.innerHTML =
+          '<span class="lookbook-size-select__text">Choose your size</span>' +
+          '<svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+          '<path d="M1 1L6 6L11 1" stroke="#111" stroke-width="1.5"/></svg>';
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'lookbook-size-select__dropdown';
+
+        opt.values.forEach(function (val, idx) {
+          const option = document.createElement('div');
+          option.className = 'lookbook-size-option';
+          option.textContent = val;
+
+          // Pre-select the first size
+          if (idx === 0) {
+            option.classList.add('is-selected');
+            trigger.querySelector('.lookbook-size-select__text').textContent = val;
+            selectedOptions[opt.name] = val;
+          }
+
+          option.addEventListener('click', function () {
+            dropdown.querySelectorAll('.lookbook-size-option').forEach(function (o) {
+              o.classList.remove('is-selected');
+            });
+            option.classList.add('is-selected');
+            trigger.querySelector('.lookbook-size-select__text').textContent = val;
+            selectedOptions[opt.name] = val;
+            updateSelectedVariant();
+            selectWrap.classList.remove('is-open');
+          });
+
+          dropdown.appendChild(option);
+        });
+
+        // Toggle dropdown open/closed
+        trigger.addEventListener('click', function (e) {
+          e.stopPropagation();
+          selectWrap.classList.toggle('is-open');
+        });
+
+        // Close dropdown when clicking outside — bound once with AbortController
+        // so it is removed when the popup closes (no memory leak on repeated opens).
+        document.addEventListener('click', function () {
+          selectWrap.classList.remove('is-open');
+        }, { signal: outsideClickController.signal });
+
+        selectWrap.appendChild(trigger);
+        selectWrap.appendChild(dropdown);
+        optionsEl.appendChild(selectWrap);
+
+      } else {
+        // ── Generic option (rendered as pill buttons) ────────
+        const wrap = document.createElement('div');
+        wrap.className = 'lookbook-color-btns';
+
+        opt.values.forEach(function (val, idx) {
+          const btn = document.createElement('button');
+          btn.className = 'lookbook-color-btn';
+          btn.textContent = val;
+
+          if (idx === 0) {
+            btn.classList.add('is-selected');
+            selectedOptions[opt.name] = val;
+          }
+
+          btn.addEventListener('click', function () {
+            wrap.querySelectorAll('.lookbook-color-btn').forEach(function (b) {
+              b.classList.remove('is-selected');
+            });
+            btn.classList.add('is-selected');
+            selectedOptions[opt.name] = val;
+            updateSelectedVariant();
+          });
+
+          wrap.appendChild(btn);
+        });
+
+        optionsEl.appendChild(wrap);
+      }
+    });
+
+    updateSelectedVariant();
+  }
+
+  // ── Focus trap ────────────────────────────────────────────────
+  /**
+   * trapFocus — keeps keyboard focus inside the popup while it is open.
+   * Queries focusable elements at call time (after buildOptions runs)
+   * so the list always reflects the current DOM.
+   */
+  function trapFocus(e) {
+    if (e.key !== 'Tab') return;
+
+    const focusable = Array.from(
+      popup.querySelectorAll(
+        'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    );
+
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last  = focusable[focusable.length - 1];
+
+    if (e.shiftKey) {
+      // Shift+Tab: if focus is on the first element, wrap to the last
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      // Tab: if focus is on the last element, wrap to the first
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  // ── Open / close popup ────────────────────────────────────────
+  /**
+   * openPopup — populates and reveals the modal for a given product.
+   * Resets any leftover state from a previous open before rendering.
+   */
+  function openPopup(productData) {
+    currentProduct    = productData;
+    selectedVariantId = null;
+    selectedOptions   = {};
+
+    // Reset UI state from any previous open
+    postAtc.classList.remove('is-visible');
+    errorMsg.classList.remove('is-visible');
+    errorMsg.textContent = '';
+    atcBtn.classList.remove('is-loading');
+    atcBtn.disabled  = false;
+    atcText.textContent = 'Add to Cart';
+
+    // Populate product info
+    thumbEl.src        = productData.image;
+    thumbEl.alt        = productData.image_alt;
+    titleEl.textContent = productData.title;
+    priceEl.textContent = productData.price;
+    descEl.textContent  = productData.description;
+
+    buildOptions(productData);
+
+    // Show overlay + popup
+    overlay.classList.add('is-active');
+    popup.classList.add('is-active');
+    document.body.style.overflow = 'hidden';
+
+    // Move focus into the popup and activate focus trap
+    closeBtn.focus();
+    document.addEventListener('keydown', trapFocus);
+  }
+
+  /**
+   * closePopup — hides the modal and restores page state.
+   */
+  function closePopup() {
+    overlay.classList.remove('is-active');
+    popup.classList.remove('is-active');
+    document.body.style.overflow = '';
+
+    // Clean up focus trap and outside-click listeners
+    document.removeEventListener('keydown', trapFocus);
+    if (outsideClickController) {
+      outsideClickController.abort();
+      outsideClickController = null;
+    }
+
+    currentProduct    = null;
+    selectedVariantId = null;
+  }
+
+  // Close triggers
+  overlay.addEventListener('click', closePopup);
+  closeBtn.addEventListener('click', closePopup);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closePopup();
+  });
+
+  // ── Hotspot click handlers ────────────────────────────────────
+  document.querySelectorAll('#lookbook-' + sectionId + ' .lookbook-item__hotspot').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation(); // prevent the click from immediately reaching the overlay
+      const productId = btn.dataset.productId;
+      const jsonEl    = document.querySelector('[data-product-json="' + productId + '"]');
+      if (!jsonEl) return;
+      try {
+        const data = JSON.parse(jsonEl.textContent);
+        openPopup(data);
+      } catch (err) {
+        // JSON.parse can throw if the Liquid output is malformed.
+        // Log to help developers debug without surfacing to the shopper.
+        console.error('Lookbook: failed to parse product JSON for id=' + productId, err);
+      }
+    });
+  });
+
+  // ── Bundle trigger check ──────────────────────────────────────
+  /**
+   * checkBundleTrigger — returns true when the currently selected
+   * colour is "black" AND the size is "m" on a non-bundle product.
+   * Guards against adding the bundle product to itself.
+   */
+  function checkBundleTrigger() {
+    if (!currentProduct || !BUNDLE_PRODUCT_HANDLE) return false;
+    if (currentProduct.handle === BUNDLE_PRODUCT_HANDLE) return false;
+
+    const colorKey = Object.keys(selectedOptions).find(function (k) {
+      return k.toLowerCase() === 'color';
+    });
+    const sizeKey = Object.keys(selectedOptions).find(function (k) {
+      return k.toLowerCase() === 'size';
+    });
+
+    if (!colorKey || !sizeKey) return false;
+
+    return (
+      selectedOptions[colorKey].toLowerCase() === BUNDLE_TRIGGER_COLOR &&
+      selectedOptions[sizeKey].toLowerCase()  === BUNDLE_TRIGGER_SIZE
+    );
+  }
+
+  // ── Bundle variant lookup ─────────────────────────────────────
+  /**
+   * findBundleVariantId — fetches the addon product via the Shopify
+   * Products JSON API and finds the Black / M variant.
+   * Returns the variant ID or null if not found / fetch fails.
+   */
+  async function findBundleVariantId() {
+    if (!BUNDLE_PRODUCT_HANDLE) return null;
+    try {
+      const res = await fetch('/products/' + encodeURIComponent(BUNDLE_PRODUCT_HANDLE) + '.js');
+      if (!res.ok) return null;
+      const data = await res.json();
+
+      if (data.variants && data.variants.length > 0) {
+        const variant = data.variants.find(function (v) {
+          // Check all three option slots for black + m regardless of order
+          const opts = [v.option1, v.option2, v.option3].map(function (o) {
+            return (o || '').toLowerCase();
+          });
+          return opts.includes('black') && opts.includes('m');
+        });
+        if (variant) return variant.id;
+      }
+    } catch (e) {
+      // Network or parse error — bundle add-on is silently skipped
+    }
+    return null;
+  }
+
+  // ── Shopify Cart AJAX API wrapper ─────────────────────────────
+  /**
+   * addToCart — POSTs a single variant to /cart/add.js.
+   * Throws an Error with a human-readable message on failure so the
+   * caller can display it without an alert().
+   */
+  async function addToCart(variantId, quantity) {
+    const res = await fetch('/cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: variantId, quantity: quantity || 1 })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(function () { return {}; });
+      throw new Error(err.description || 'Add to cart failed');
+    }
+    return res.json();
+  }
+
+  // ── Add to Cart click handler ─────────────────────────────────
+  atcBtn.addEventListener('click', async function () {
+    if (!currentProduct) return;
+
+    // Resolve variant — use the selected ID or the only variant if
+    // the product has no options.
+    const variantId = selectedVariantId ||
+      (currentProduct.variants.length === 1 ? currentProduct.variants[0].id : null);
+
+    if (!variantId) {
+      // Inline validation message instead of alert()
+      errorMsg.textContent = 'Please select all options before adding to cart.';
+      errorMsg.classList.add('is-visible');
+      return;
+    }
+
+    // Hide any previous error
+    errorMsg.classList.remove('is-visible');
+    errorMsg.textContent = '';
+
+    // Disable button to prevent double-submission
+    atcBtn.disabled = true;
+    atcBtn.classList.add('is-loading');
+    atcText.textContent = 'Adding...';
+
+    try {
+      await addToCart(variantId, 1);
+
+      // If the bundle trigger conditions are met, silently add the addon product
+      if (checkBundleTrigger()) {
+        const bundleId = await findBundleVariantId();
+        if (bundleId) {
+          await addToCart(bundleId, 1);
+        }
+      }
+
+      // Restore button and show confirmation
+      atcBtn.classList.remove('is-loading');
+      atcBtn.disabled = false;
+      atcText.textContent = 'Add to Cart';
+      postAtc.classList.add('is-visible');
+
+      // Notify other theme components (e.g. cart drawer) that the cart changed
+      document.dispatchEvent(new CustomEvent('cart:updated'));
+
+    } catch (err) {
+      // Show the server error message inline
+      atcBtn.classList.remove('is-loading');
+      atcBtn.disabled = false;
+      atcText.textContent = 'Add to Cart';
+      errorMsg.textContent = err.message || 'Something went wrong. Please try again.';
+      errorMsg.classList.add('is-visible');
+    }
+  });
+
+  // Apply hotspot positions on initial load
+  applyHotspotPositions();
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Shoppable Lookbook",
+  "tag": "section",
+  "class": "shopify-section-lookbook",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Shop the Look"
+    },
+    {
+      "type": "product",
+      "id": "addon_product",
+      "label": "Bundle addon product",
+      "info": "This product is automatically added when a shopper picks Black + M on any lookbook item."
+    }
+  ],
+  "blocks": [
+    {
+      "type": "product",
+      "name": "Product",
+      "settings": [
+        {
+          "type": "product",
+          "id": "product",
+          "label": "Product"
+        },
+        {
+          "type": "image_picker",
+          "id": "custom_image",
+          "label": "Custom image",
+          "info": "Overrides the product's featured image in the grid."
+        },
+        {
+          "type": "header",
+          "content": "Hotspot Position — Desktop"
+        },
+        {
+          "type": "range",
+          "id": "hotspot_top_desktop",
+          "label": "From top (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "default": 50
+        },
+        {
+          "type": "range",
+          "id": "hotspot_left_desktop",
+          "label": "From left (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "default": 50
+        },
+        {
+          "type": "header",
+          "content": "Hotspot Position — Mobile"
+        },
+        {
+          "type": "range",
+          "id": "hotspot_top_mobile",
+          "label": "From top (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "default": 50
+        },
+        {
+          "type": "range",
+          "id": "hotspot_left_mobile",
+          "label": "From left (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "default": 50
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Shoppable Lookbook",
+      "blocks": [
+        { "type": "product" },
+        { "type": "product" },
+        { "type": "product" }
+      ]
+    }
+  ]
+}
+{% endschema %}

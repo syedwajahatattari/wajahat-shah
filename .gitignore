@@ -1,0 +1,17 @@
+# Shopify CLI internals — not part of the theme source
+.shopify/
+
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Node (if ever running local tooling)
+node_modules/
+npm-debug.log*
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
