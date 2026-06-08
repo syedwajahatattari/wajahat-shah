@@ -14,7 +14,7 @@
 {%- style -%}
   /*
    * Google Fonts — loaded via @import so it stays inside Shopify's
-   * {%- style -%} pipeline and doesn't block the <head> parser.
+   * style tag pipeline and doesn't block the <head> parser.
    */
   @import url('https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap');
 
@@ -671,8 +671,8 @@
     </div>
 
     {%- comment -%}
-      Mobile-only image block — uses a CSS background-image (set in
-      {%- style -%}) so the CTA button can sit absolutely on top.
+      Mobile-only image block — uses a CSS background-image (set via the
+      style tag above) so the CTA button can sit absolutely on top.
     {%- endcomment -%}
     <div
       class="gb-hero-split__image--mobile-btn"
